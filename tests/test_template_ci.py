@@ -254,3 +254,11 @@ def test_hash_prints_the_script_hash(repo, capsys):
     ci.main(["hash", str(repo / "templates" / UUID / "script.ini")])
 
     assert capsys.readouterr().out == ci.script_hash(SCRIPT) + "\n"
+
+
+def test_only_changed_hides_other_templates(repo):
+    write_template(repo, OTHER, template=meta(OTHER, status="published"))  # broken, and not this pull request's
+    reindex(repo)
+
+    assert any(OTHER in e for e in run(repo).errors)
+    assert ci.check(repo, [f"templates/{UUID}/script.ini"], "alex", only_changed=True).errors == []

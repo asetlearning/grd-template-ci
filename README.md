@@ -64,7 +64,7 @@ The math-api plugin writes these files, so it must compute the same values as `t
 ```bash
 pip install -r requirements.txt
 python template_ci.py index --repo <team-repo>     # rewrite INDEX.md
-python template_ci.py check --repo <team-repo> --changed <file> --pr-author <login> [--base <commit>]
+python template_ci.py check --repo <team-repo> --changed <file> --pr-author <login> [--base <commit>] [--only-changed]
 python template_ci.py snapshot --repo <team-repo> --input <list_learning_objectives response>.json
 python template_ci.py hash <script.ini>            # print its script_hash
 python -m pytest                                   # tests (needs pytest)
