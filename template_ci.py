@@ -226,7 +226,7 @@ def check(repo: Path, changed: list[str], pr_author: str,
             f"**Outcome:** {report['outcome']}",
             f"**Math Expert:** {'stale: script.ini changed since the review' if result.stale else 'matches script.ini'}",
             f"**generate_problems:** {g['ok']} ok, {g['failed']} failed, {g['not_run']} not run, "
-            f"{g['distinct']} distinct, {len(g['findings'])} findings (Mathserver {report['mathserver_version']})",
+            f"{g['distinct']} distinct, {len(g['findings'])} findings (Mathserver {report['mathserver_version'] or 'unknown'})",
             *(f"- Round {r['round']}: {r['verdict']}, {r['math_errors']} math errors, seeds "
               f"{', '.join(map(str, r['seeds']))}" for r in report["math_expert_rounds"]),
         ]
