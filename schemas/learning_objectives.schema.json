@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Created by: Alex Myasnikov. Date: November 11, 2026. A team repository's Learning Objective snapshot, learning_objectives.json at its root (mathserver-mcp ADR-0003).",
+  "title": "learning_objectives.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mathserver_version", "hash", "learning_objectives"],
+  "properties": {
+    "mathserver_version": {"type": ["string", "null"], "description": "The Mathserver the list came from."},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "snapshot_hash() of the list in template_ci.py."},
+    "learning_objectives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "parent_id"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "label": {"type": "string"},
+          "parent_id": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}
