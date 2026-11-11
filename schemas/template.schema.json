@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Created by: Alex Myasnikov. Date: November 11, 2026. The metadata of a Template, templates/<uuid>/template.yaml (mathserver-mcp ADR-0003).",
+  "title": "template.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["uuid", "name", "learning_objectives", "source", "origin", "status"],
+  "properties": {
+    "uuid": {
+      "description": "A v4 uuid, created when the Template is first added. It never changes and is the folder name.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": ["string", "null"]},
+    "learning_objectives": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["main", "secondary"],
+      "properties": {
+        "main": {"type": "string", "minLength": 1},
+        "secondary": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "source": {
+      "description": "new: written here; examples given to the author don't count. existing: copied from a Gradarius template, edited or not. outside: copied from anywhere else. A copied script needs the person who approved it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "approved_by"],
+      "properties": {
+        "kind": {"enum": ["new", "existing", "outside"]},
+        "ref": {"type": ["string", "null"], "description": "The Gradarius uuid, or a citation or URL."},
+        "approved_by": {"type": ["string", "null"], "description": "GitHub login of the person who approved using the source."}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "new"}}},
+          "then": {"properties": {"ref": {"type": "null"}, "approved_by": {"type": "null"}}},
+          "else": {"properties": {"ref": {"type": "string", "minLength": 1}, "approved_by": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "existing"}}},
+          "then": {"properties": {"ref": {"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}}}
+        }
+      ]
+    },
+    "origin": {"description": "Who wrote the first version.", "enum": ["agent", "person"]},
+    "status": {"enum": ["approved", "on_hold"], "default": "approved", "description": "Written as approved unless a person puts the Template on hold."}
+  }
+}

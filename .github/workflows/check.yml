@@ -1,0 +1,74 @@
+# Created by: Alex Myasnikov
+# Date: November 11, 2026
+# Reusable offline checks for a Template Repository pull request (mathserver-mcp ADR-0003).
+# It reports but doesn't block: merging is held back only where the team repository has branch protection.
+name: Template checks
+
+on:
+  workflow_call:
+    inputs:
+      ci-ref:
+        description: The grd-template-ci ref whose checks run. Keep it equal to the ref the caller pins.
+        type: string
+        # shortcut: a called workflow can't see its own ref, so this is set by hand; drop it if GitHub exposes one.
+        default: v1
+
+defaults:
+  run:
+    # Not the default `bash -e`: pipefail keeps the check's exit code through `tee`.
+    shell: bash
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: asetlearning/grd-template-ci
+          ref: ${{ inputs.ci-ref }}
+          path: .template-ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r .template-ci/requirements.txt
+      - name: Check
+        id: check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # --no-renames lists both sides of a move, so a file moved between two Templates counts for both.
+          git diff --name-only --no-renames "$BASE"...HEAD > "$RUNNER_TEMP/changed.txt"
+          python .template-ci/template_ci.py check --changed "$RUNNER_TEMP/changed.txt" --pr-author "$AUTHOR" \
+            --base "$BASE" | tee "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      # Pull requests from forks get a read-only token, so these two steps fail there; authors push branches instead.
+      - name: Show the result in the pull request
+        if: always() && steps.check.outputs.stale != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/summary.md" --edit-last --create-if-none
+      - name: Label a stale Math Expert review
+        if: always() && steps.check.outputs.stale != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          STALE: ${{ steps.check.outputs.stale }}
+          LABEL: "Math Expert: stale"
+        run: |
+          if [ "$STALE" = true ]; then
+            gh label create "$LABEL" --color D93F0B --force \
+              --description "script.ini changed since the Math Expert review" -R "$GITHUB_REPOSITORY"
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f "labels[]=$LABEL" > /dev/null
+          else
+            encoded=$(jq -rn --arg l "$LABEL" '$l|@uri')
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$encoded" > /dev/null 2>&1 || true
+          fi

@@ -1,0 +1,4 @@
+# Created by: Alex Myasnikov
+# Date: November 11, 2026
+__pycache__/
+.pytest_cache/

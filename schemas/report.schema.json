@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Created by: Alex Myasnikov. Date: November 11, 2026. The validation results of a Template, templates/<uuid>/report.json (mathserver-mcp ADR-0003).",
+  "title": "report.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["script_hash", "mathserver_version", "generate", "math_expert_rounds", "outcome"],
+  "properties": {
+    "script_hash": {
+      "description": "sha256 of the raw bytes of script.ini, as the Math API computes it. No normalization: any change makes the report stale.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mathserver_version": {"type": ["string", "null"]},
+    "generate": {
+      "description": "The summary of the last generate_problems call.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "failed", "not_run", "distinct", "findings"],
+      "properties": {
+        "ok": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "not_run": {"type": "integer", "minimum": 0},
+        "distinct": {"type": "integer", "minimum": 0},
+        "findings": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "math_expert_rounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["round", "seeds", "verdict", "math_errors"],
+        "properties": {
+          "round": {"type": "integer", "minimum": 1},
+          "seeds": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+          "verdict": {"enum": ["pass", "math_error", "needs_review"]},
+          "math_errors": {"type": "integer", "minimum": 0, "description": "Confirmed math errors in the script."}
+        }
+      }
+    },
+    "outcome": {"enum": ["passed", "needs_person"]}
+  }
+}
