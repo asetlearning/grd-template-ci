@@ -198,14 +198,17 @@ def base_source(read_base: Callable[[str], str | None], uuid: str) -> dict | Non
 
 
 def check(repo: Path, changed: list[str], pr_author: str,
-          read_base: Callable[[str], str | None] = lambda path: None, only_changed: bool = False) -> Result:
-    """read_base gives a file's text before the pull request, or None if it didn't exist. only_changed reports
-    nothing about other Templates, for an author's agent under the hold-out."""
+          read_base: Callable[[str], str | None] = lambda path: None) -> Result:
+    """read_base gives a file's text before the pull request, or None if it didn't exist.
+
+    A pull request that changes a Template reports only that Template: the author's agent reads the result, and under
+    the hold-out it mustn't see other Templates. One that changes none, such as a snapshot update, checks them all.
+    """
     result = Result()
-    objectives, templates, result.errors = load_repo(repo)
+    _, templates, result.errors = load_repo(repo)
     uuid, errors = changed_template(changed)
     for t in templates:
-        if not only_changed or t.uuid == uuid:
+        if uuid is None or t.uuid == uuid:
             result.errors += [f"{TEMPLATES}/{t.uuid}: {e}" for e in t.errors]
     result.errors += errors
     current = next((t for t in templates if t.uuid == uuid), None)  # None when the pull request deletes it
@@ -230,10 +233,6 @@ def check(repo: Path, changed: list[str], pr_author: str,
             *(f"- Round {r['round']}: {r['verdict']}, {r['math_errors']} math errors, seeds "
               f"{', '.join(map(str, r['seeds']))}" for r in report["math_expert_rounds"]),
         ]
-
-    index = build_index(templates, objectives)
-    if not (repo / INDEX).is_file() or (repo / INDEX).read_text() != index:
-        result.errors.append(f"{INDEX} is out of date: run `python template_ci.py index`")
     return result
 
 
@@ -245,7 +244,6 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument("--changed", type=Path, required=True, help="file listing the changed paths, one per line")
     check_parser.add_argument("--pr-author", required=True)
     check_parser.add_argument("--base", help="the pull request's base commit, to read files as they were")
-    check_parser.add_argument("--only-changed", action="store_true", help="report nothing about other Templates")
     index = sub.add_parser("index", help=f"rewrite {INDEX}")
     index.add_argument("--repo", type=Path, default=Path("."))
     snapshot = sub.add_parser("snapshot", help=f"rewrite {SNAPSHOT} if the Learning Objectives changed")
@@ -274,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         shown = subprocess.run(["git", "-C", str(args.repo), "show", f"{args.base}:{path}"], capture_output=True, text=True)
         return shown.stdout if shown.returncode == 0 else None
 
-    result = check(args.repo, args.changed.read_text().splitlines(), args.pr_author, read_base, args.only_changed)
+    result = check(args.repo, args.changed.read_text().splitlines(), args.pr_author, read_base)
     report = ["## Template checks", "", *result.summary, ""]
     report += [f"- ❌ {e}" for e in result.errors] or ["✅ All checks passed."]
     print("\n".join(report))
