@@ -233,3 +233,24 @@ def test_cli_reads_the_base_source_from_git(repo, tmp_path_factory):
 
     assert ci.main(args + ["--base", "HEAD"]) == 0  # source unchanged since the base
     assert ci.main(args) == 1  # no base: treated as new, so it needs the author's approval
+
+
+def test_snapshot_is_rewritten_only_when_the_list_changes(repo, tmp_path_factory, capsys):
+    response = tmp_path_factory.mktemp("api") / "lo.json"
+    response.write_text(json.dumps({"learning_objectives": list(reversed(OBJECTIVES)), "mathserver_version": "2.55"}))
+    args = ["snapshot", "--repo", str(repo), "--input", str(response)]
+
+    ci.main(args)
+    assert capsys.readouterr().out == "unchanged\n"  # a new version alone isn't a change
+
+    response.write_text(json.dumps({"learning_objectives": OBJECTIVES[:2], "mathserver_version": "2.55"}))
+    ci.main(args)
+    assert capsys.readouterr().out == "updated\n"
+    snapshot = json.loads((repo / ci.SNAPSHOT).read_text())
+    assert snapshot["mathserver_version"] == "2.55" and ci.load_snapshot(repo)[1] == []
+
+
+def test_hash_prints_the_script_hash(repo, capsys):
+    ci.main(["hash", str(repo / "templates" / UUID / "script.ini")])
+
+    assert capsys.readouterr().out == ci.script_hash(SCRIPT) + "\n"

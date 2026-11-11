@@ -104,6 +104,23 @@ def load_snapshot(repo: Path) -> tuple[list[dict], list[str]]:
     return data["learning_objectives"], []
 
 
+def write_snapshot(repo: Path, response: dict) -> bool:
+    """Rewrite the snapshot from a list_learning_objectives response if the list changed. True if it was rewritten."""
+    objectives = sorted(({"id": o["id"], "label": o["label"], "parent_id": o.get("parent_id")}
+                         for o in response["learning_objectives"]), key=lambda o: o["id"])
+    new_hash = snapshot_hash(objectives)
+    path = repo / SNAPSHOT
+    try:
+        if json.loads(path.read_text())["hash"] == new_hash:
+            return False
+    except (OSError, ValueError, KeyError):
+        pass
+    rows = ",\n".join("    " + json.dumps(o, ensure_ascii=False) for o in objectives)
+    path.write_text(f'{{\n  "mathserver_version": {json.dumps(response.get("mathserver_version"))},\n'
+                    f'  "hash": "{new_hash}",\n  "learning_objectives": [\n{rows}\n  ]\n}}\n')
+    return True
+
+
 def load_repo(repo: Path) -> tuple[list[dict], list[Template], list[str]]:
     """The snapshot, every Template, and the snapshot's errors."""
     objectives, errors = load_snapshot(repo)
@@ -229,7 +246,20 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument("--base", help="the pull request's base commit, to read files as they were")
     index = sub.add_parser("index", help=f"rewrite {INDEX}")
     index.add_argument("--repo", type=Path, default=Path("."))
+    snapshot = sub.add_parser("snapshot", help=f"rewrite {SNAPSHOT} if the Learning Objectives changed")
+    snapshot.add_argument("--repo", type=Path, default=Path("."))
+    snapshot.add_argument("--input", type=Path, required=True, help="a list_learning_objectives response, as JSON")
+    hash_parser = sub.add_parser("hash", help="print a script's script_hash")
+    hash_parser.add_argument("script", type=Path)
     args = parser.parse_args(argv)
+
+    if args.command == "hash":
+        print(script_hash(args.script.read_bytes()))
+        return 0
+    if args.command == "snapshot":
+        changed = write_snapshot(args.repo, json.loads(args.input.read_text()))
+        print("updated" if changed else "unchanged")
+        return 0
 
     if args.command == "index":
         objectives, templates, _ = load_repo(args.repo)
