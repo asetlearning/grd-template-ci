@@ -3,6 +3,8 @@
 # Date: November 11, 2026
 
 import json
+import shutil
+import subprocess
 
 import pytest
 import yaml
@@ -159,7 +161,6 @@ def test_files_loose_in_templates_fail(repo):
 
 
 def test_deleting_a_template_passes(repo):
-    import shutil
     shutil.rmtree(repo / "templates" / UUID)
     reindex(repo)
 
@@ -197,3 +198,38 @@ def test_cli_prints_the_summary_and_fails_on_errors(repo, tmp_path_factory, caps
     assert ci.main(["check", "--repo", str(repo), "--changed", str(changed), "--pr-author", "alex"]) == 0
     assert "stale" in capsys.readouterr().out
     assert output.read_text() == "stale=true\n"
+
+
+def test_later_edits_of_a_copied_template_need_no_new_approval(repo):
+    source = {"kind": "outside", "ref": "a book", "approved_by": "alex"}
+    write_template(repo, template=meta(source=source))
+    before = yaml.safe_dump(meta(source=source))
+
+    assert ci.check(repo, [f"templates/{UUID}/script.ini"], "someone", lambda path: before).errors == []
+    changed = yaml.safe_dump(meta(source=dict(source, ref="another book")))
+    assert ci.check(repo, [f"templates/{UUID}/script.ini"], "someone", lambda path: changed).errors != []
+
+
+def test_missing_script_is_an_error_not_a_crash(repo):
+    (repo / "templates" / UUID / "script.ini").unlink()
+
+    assert any("missing script.ini" in e for e in run(repo).errors)
+
+
+def test_invalid_snapshot_json_is_an_error_not_a_crash(repo):
+    (repo / ci.SNAPSHOT).write_text("{")
+
+    assert any("isn't valid JSON" in e for e in run(repo).errors)
+
+
+def test_cli_reads_the_base_source_from_git(repo, tmp_path_factory):
+    write_template(repo, template=meta(source={"kind": "outside", "ref": "a book", "approved_by": "alex"}))
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    for command in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "base"]):
+        subprocess.run(git + command, check=True)
+    changed = tmp_path_factory.mktemp("ci") / "changed.txt"
+    changed.write_text(f"templates/{UUID}/script.ini\n")
+    args = ["check", "--repo", str(repo), "--changed", str(changed), "--pr-author", "someone"]
+
+    assert ci.main(args + ["--base", "HEAD"]) == 0  # source unchanged since the base
+    assert ci.main(args) == 1  # no base: treated as new, so it needs the author's approval

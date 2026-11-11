@@ -45,6 +45,6 @@
       ]
     },
     "origin": {"description": "Who wrote the first version.", "enum": ["agent", "person"]},
-    "status": {"enum": ["approved", "on_hold"]}
+    "status": {"enum": ["approved", "on_hold"], "default": "approved", "description": "Written as approved unless a person puts the Template on hold."}
   }
 }

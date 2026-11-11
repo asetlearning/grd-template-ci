@@ -5,7 +5,9 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
@@ -22,9 +24,13 @@ FILES = ("script.ini", "template.yaml", "report.md", "report.json")
 
 
 class SourceKind(StrEnum):
+    """Only NEW is special here; the schema lists every kind."""
     NEW = "new"
-    EXISTING = "existing"
-    OUTSIDE = "outside"
+
+
+class Status(StrEnum):
+    APPROVED = "approved"
+    ON_HOLD = "on_hold"
 
 
 def script_hash(script: bytes) -> str:
@@ -87,7 +93,10 @@ def load_snapshot(repo: Path) -> tuple[list[dict], list[str]]:
     path = repo / SNAPSHOT
     if not path.is_file():
         return [], [f"{SNAPSHOT} is missing"]
-    data = json.loads(path.read_text())
+    try:
+        data = json.loads(path.read_text())
+    except ValueError as e:
+        return [], [f"{SNAPSHOT} isn't valid JSON: {e}"]
     if errors := schema_errors("learning_objectives", data):
         return [], [f"{SNAPSHOT} {e}" for e in errors]
     if data["hash"] != snapshot_hash(data["learning_objectives"]):
@@ -95,9 +104,13 @@ def load_snapshot(repo: Path) -> tuple[list[dict], list[str]]:
     return data["learning_objectives"], []
 
 
-def template_folders(repo: Path) -> list[Path]:
+def load_repo(repo: Path) -> tuple[list[dict], list[Template], list[str]]:
+    """The snapshot, every Template, and the snapshot's errors."""
+    objectives, errors = load_snapshot(repo)
+    ids = {o["id"] for o in objectives}
     root = repo / TEMPLATES
-    return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    folders = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    return objectives, [load_template(folder, ids) for folder in folders], errors
 
 
 def build_index(templates: list[Template], objectives: list[dict]) -> str:
@@ -123,7 +136,7 @@ def build_index(templates: list[Template], objectives: list[dict]) -> str:
     def render(node: dict, depth: int) -> list[str]:
         lines = []
         for t in sorted(node.get("", []), key=lambda t: (t.meta["name"], t.uuid)):
-            hold = " · on hold" if t.meta["status"] == "on_hold" else ""
+            hold = " · on hold" if t.meta["status"] == Status.ON_HOLD else ""
             lines.append(f"{'  ' * depth}- [{t.meta['name']}]({TEMPLATES}/{t.uuid}/){hold}")
         for objective in sorted((k for k in node if k), key=lambda k: (by_id.get(k, {}).get("label", k), k)):
             lines.append(f"{'  ' * depth}- {label(objective)}")
@@ -143,42 +156,53 @@ class Result:
     summary: list[str] = field(default_factory=list)
 
 
-def changed_template(changed: list[str], result: Result) -> str | None:
-    """The one Template folder a pull request changes, if any. Snapshot-only pull requests change none."""
-    uuids = set()
+def changed_template(changed: list[str]) -> tuple[str | None, list[str]]:
+    """The one Template folder a pull request changes, if any, and errors. Snapshot-only pull requests change none."""
+    uuids, errors = set(), []
     for path in changed:
         parts = Path(path).parts
-        if parts[0] != TEMPLATES:
+        if not parts or parts[0] != TEMPLATES:
             continue
         if len(parts) < 3:
-            result.errors.append(f"{path}: files under {TEMPLATES}/ must be in a Template folder")
+            errors.append(f"{path}: files under {TEMPLATES}/ must be in a Template folder")
         else:
             uuids.add(parts[1])
     if len(uuids) > 1:
-        result.errors.append(f"a pull request changes one Template, this one changes {len(uuids)}: "
-                             + ", ".join(sorted(uuids)))
-    return next(iter(uuids)) if len(uuids) == 1 else None
+        errors.append(f"a pull request changes one Template, this one changes {len(uuids)}: " + ", ".join(sorted(uuids)))
+    return (next(iter(uuids)) if len(uuids) == 1 else None), errors
 
 
-def check(repo: Path, changed: list[str], pr_author: str) -> Result:
+def base_source(read_base: Callable[[str], str | None], uuid: str) -> dict | None:
+    """The Template's source before the pull request, or None if it's new or wasn't readable."""
+    try:
+        return (yaml.safe_load(read_base(f"{TEMPLATES}/{uuid}/template.yaml") or "") or {}).get("source")
+    except (yaml.YAMLError, AttributeError):
+        return None
+
+
+def check(repo: Path, changed: list[str], pr_author: str,
+          read_base: Callable[[str], str | None] = lambda path: None) -> Result:
+    """read_base gives a file's text before the pull request, or None if it didn't exist."""
     result = Result()
-    objectives, result.errors = load_snapshot(repo)
-    ids = {o["id"] for o in objectives}
-    templates = [load_template(folder, ids) for folder in template_folders(repo)]
+    objectives, templates, result.errors = load_repo(repo)
     for t in templates:
         result.errors += [f"{TEMPLATES}/{t.uuid}: {e}" for e in t.errors]
 
-    uuid = changed_template(changed, result)
+    uuid, errors = changed_template(changed)
+    result.errors += errors
     current = next((t for t in templates if t.uuid == uuid), None)  # None when the pull request deletes it
     if current and current.meta:
         source = current.meta["source"]
-        if source["kind"] != SourceKind.NEW and source["approved_by"] != pr_author:
+        # Only whoever adds or changes a copied source must have approved it, not everyone who edits the Template later.
+        if (source["kind"] != SourceKind.NEW and source != base_source(read_base, uuid)
+                and source["approved_by"] != pr_author):
             result.errors.append(f"{TEMPLATES}/{uuid}: source.approved_by is {source['approved_by']}, but the pull "
                                  f"request is by {pr_author}. Copied scripts need the author's approval.")
         result.summary.append(f"**Template:** {current.meta['name']} (`{uuid}`), source: {source['kind']}")
-    if current and current.report:
+    script = repo / TEMPLATES / str(uuid) / "script.ini"
+    if current and current.report and script.is_file():
         report = current.report
-        result.stale = report["script_hash"] != script_hash((repo / TEMPLATES / uuid / "script.ini").read_bytes())
+        result.stale = report["script_hash"] != script_hash(script.read_bytes())
         g = report["generate"]
         result.summary += [
             f"**Outcome:** {report['outcome']}",
@@ -198,22 +222,27 @@ def check(repo: Path, changed: list[str], pr_author: str) -> Result:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    run = sub.add_parser("check", help="check a pull request")
-    run.add_argument("--repo", type=Path, default=Path("."))
-    run.add_argument("--changed", type=Path, required=True, help="file listing the changed paths, one per line")
-    run.add_argument("--pr-author", required=True)
+    check_parser = sub.add_parser("check", help="check a pull request")
+    check_parser.add_argument("--repo", type=Path, default=Path("."))
+    check_parser.add_argument("--changed", type=Path, required=True, help="file listing the changed paths, one per line")
+    check_parser.add_argument("--pr-author", required=True)
+    check_parser.add_argument("--base", help="the pull request's base commit, to read files as they were")
     index = sub.add_parser("index", help=f"rewrite {INDEX}")
     index.add_argument("--repo", type=Path, default=Path("."))
     args = parser.parse_args(argv)
 
     if args.command == "index":
-        objectives, _ = load_snapshot(args.repo)
-        ids = {o["id"] for o in objectives}
-        templates = [load_template(f, ids) for f in template_folders(args.repo)]
+        objectives, templates, _ = load_repo(args.repo)
         (args.repo / INDEX).write_text(build_index(templates, objectives))
         return 0
 
-    result = check(args.repo, args.changed.read_text().splitlines(), args.pr_author)
+    def read_base(path: str) -> str | None:
+        if not args.base:
+            return None
+        shown = subprocess.run(["git", "-C", str(args.repo), "show", f"{args.base}:{path}"], capture_output=True, text=True)
+        return shown.stdout if shown.returncode == 0 else None
+
+    result = check(args.repo, args.changed.read_text().splitlines(), args.pr_author, read_base)
     report = ["## Template checks", "", *result.summary, ""]
     report += [f"- ❌ {e}" for e in result.errors] or ["✅ All checks passed."]
     print("\n".join(report))

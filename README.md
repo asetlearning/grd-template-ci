@@ -35,10 +35,12 @@ It fails when:
 - `template.yaml` or `report.json` doesn't match its schema (`schemas/`), or `uuid` differs from the folder name
 - a Learning Objective isn't in the snapshot
 - it changes more than one Template, or puts files directly in `templates/`. A pull request that changes no Template, such as a snapshot update, is fine.
-- the changed Template copies a script (`source.kind` is `existing` or `outside`) and `source.approved_by` isn't the pull request's author
+- the pull request adds a copied script (`source.kind` is `existing` or `outside`) or changes its `source`, and `source.approved_by` isn't the pull request's author. Later edits by others don't need a new approval.
 - `INDEX.md` is out of date
 
-When `script_hash` in `report.json` doesn't match `script.ini`, it labels the pull request "Math Expert: stale" but doesn't fail. The report's outcome and rounds go in the run's summary.
+When `script_hash` in `report.json` doesn't match `script.ini`, it labels the pull request "Math Expert: stale" but doesn't fail. The results, with the report's outcome and rounds, go in a pull request comment that each run updates.
+
+Pull requests from forks get a read-only token, so the comment and label steps fail there. Authors push branches to the team repository instead.
 
 Without branch protection, a failed check reports but doesn't block a merge.
 
