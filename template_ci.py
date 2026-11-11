@@ -199,13 +199,17 @@ def base_source(read_base: Callable[[str], str | None], uuid: str) -> dict | Non
 
 def check(repo: Path, changed: list[str], pr_author: str,
           read_base: Callable[[str], str | None] = lambda path: None) -> Result:
-    """read_base gives a file's text before the pull request, or None if it didn't exist."""
-    result = Result()
-    objectives, templates, result.errors = load_repo(repo)
-    for t in templates:
-        result.errors += [f"{TEMPLATES}/{t.uuid}: {e}" for e in t.errors]
+    """read_base gives a file's text before the pull request, or None if it didn't exist.
 
+    A pull request that changes a Template reports only that Template: the author's agent reads the result, and under
+    the hold-out it mustn't see other Templates. One that changes none, such as a snapshot update, checks them all.
+    """
+    result = Result()
+    _, templates, result.errors = load_repo(repo)
     uuid, errors = changed_template(changed)
+    for t in templates:
+        if uuid is None or t.uuid == uuid:
+            result.errors += [f"{TEMPLATES}/{t.uuid}: {e}" for e in t.errors]
     result.errors += errors
     current = next((t for t in templates if t.uuid == uuid), None)  # None when the pull request deletes it
     if current and current.meta:
@@ -225,14 +229,10 @@ def check(repo: Path, changed: list[str], pr_author: str,
             f"**Outcome:** {report['outcome']}",
             f"**Math Expert:** {'stale: script.ini changed since the review' if result.stale else 'matches script.ini'}",
             f"**generate_problems:** {g['ok']} ok, {g['failed']} failed, {g['not_run']} not run, "
-            f"{g['distinct']} distinct, {len(g['findings'])} findings (Mathserver {report['mathserver_version']})",
+            f"{g['distinct']} distinct, {len(g['findings'])} findings (Mathserver {report['mathserver_version'] or 'unknown'})",
             *(f"- Round {r['round']}: {r['verdict']}, {r['math_errors']} math errors, seeds "
               f"{', '.join(map(str, r['seeds']))}" for r in report["math_expert_rounds"]),
         ]
-
-    index = build_index(templates, objectives)
-    if not (repo / INDEX).is_file() or (repo / INDEX).read_text() != index:
-        result.errors.append(f"{INDEX} is out of date: run `python template_ci.py index`")
     return result
 
 

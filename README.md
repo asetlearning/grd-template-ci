@@ -11,7 +11,7 @@ It holds code only. Each team repository keeps its own Learning Objective snapsh
 
 ## Use it in a team repository
 
-Add `.github/workflows/check.yml`, pinned to a release:
+Add two workflows, pinned to a release. `.github/workflows/check.yml` checks pull requests:
 
 ```yaml
 name: Template checks
@@ -25,9 +25,25 @@ jobs:
       issues: write
 ```
 
+`.github/workflows/index.yml` rebuilds `INDEX.md` after each merge and commits it:
+
+```yaml
+name: Rebuild INDEX.md
+on:
+  push:
+    branches: [main]
+jobs:
+  index:
+    uses: asetlearning/grd-template-ci/.github/workflows/index.yml@v1
+    permissions:
+      contents: write
+```
+
 The team repository keeps its Learning Objective snapshot in `learning_objectives.json` at its root.
 
 ## What a pull request is checked for
+
+A pull request that changes a Template reports only on that Template: the author's agent reads the result, and under the stage 3 hold-out it mustn't see other Templates. A pull request that changes none, such as a snapshot update, checks every Template.
 
 It fails when:
 - `learning_objectives.json` doesn't match its schema, or its `hash` doesn't match its list
@@ -36,7 +52,6 @@ It fails when:
 - a Learning Objective isn't in the snapshot
 - it changes more than one Template, or puts files directly in `templates/`. A pull request that changes no Template, such as a snapshot update, is fine.
 - the pull request adds a copied script (`source.kind` is `existing` or `outside`) or changes its `source`, and `source.approved_by` isn't the pull request's author. Later edits by others don't need a new approval.
-- `INDEX.md` is out of date
 
 When `script_hash` in `report.json` doesn't match `script.ini`, it labels the pull request "Math Expert: stale" but doesn't fail. The results, with the report's outcome and rounds, go in a pull request comment that each run updates.
 
@@ -55,7 +70,7 @@ A copied script needs `approved_by`: the GitHub login of the author who approved
 
 ## Shared definitions
 
-The math-api plugin writes these files, so it must compute the same values as `template_ci.py`:
+The math-api plugin computes these with Python's standard library, so authors install nothing. CI recomputes them, so a mismatch fails the next pull request:
 - `script_hash(script)`: sha256 of the raw bytes of `script.ini`, as the Math API computes it
 - `snapshot_hash(objectives)`: sha256 of the list as compact JSON, each entry reduced to `id`, `label` and `parent_id`, sorted by `id`, with sorted keys
 

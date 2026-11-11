@@ -1,0 +1,55 @@
+# Created by: Alex Myasnikov
+# Date: November 11, 2026
+# Reusable: rebuilds a Template Repository's INDEX.md after a merge to main, and commits it when it changed
+# (mathserver-mcp ADR-0003). Authors never edit or regenerate it.
+name: Rebuild INDEX.md
+
+on:
+  workflow_call:
+    inputs:
+      ci-ref:
+        description: The grd-template-ci ref whose generator runs. Keep it equal to the ref the caller pins.
+        type: string
+        # shortcut: a called workflow can't see its own ref, so this is set by hand; drop it if GitHub exposes one.
+        default: v1
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: rebuild-index
+  cancel-in-progress: false
+
+jobs:
+  index:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # The latest main, not the pushed commit: runs queue one at a time, so each sees every merge before it.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/checkout@v4
+        with:
+          repository: asetlearning/grd-template-ci
+          ref: ${{ inputs.ci-ref }}
+          path: .template-ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r .template-ci/requirements.txt
+      - name: Rebuild and commit
+        run: |
+          python .template-ci/template_ci.py index
+          if git diff --quiet -- INDEX.md; then
+            echo "INDEX.md is up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Rebuild INDEX.md" -- INDEX.md
+          # A push with the workflow's own token doesn't start another run, so this can't loop.
+          git push -q origin HEAD:main

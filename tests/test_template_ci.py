@@ -74,7 +74,6 @@ def test_snapshot_only_pull_request_passes(repo):
 
 def test_more_than_one_template_fails(repo):
     write_template(repo, OTHER)
-    reindex(repo)
 
     [error] = run(repo, changed=[f"templates/{UUID}/script.ini", f"templates/{OTHER}/report.md"]).errors
     assert "changes 2" in error
@@ -107,7 +106,6 @@ def test_missing_files_fail(repo):
 
 def test_unknown_learning_objective_fails(repo):
     write_template(repo, template=meta(learning_objectives={"main": "limits", "secondary": ["calculus"]}))
-    reindex(repo)
 
     assert run(repo).errors == [f"templates/{UUID}: Learning Objectives not in learning_objectives.json: calculus"]
 
@@ -129,10 +127,10 @@ def test_changed_script_marks_the_review_stale_without_failing(repo):
     assert any("stale" in line for line in result.summary)
 
 
-def test_stale_index_fails(repo):
-    write_template(repo, template=meta(name="Renamed"))
+def test_index_isnt_checked_on_pull_requests(repo):
+    write_template(repo, template=meta(name="Renamed"))  # INDEX.md now lists the old name; CI rebuilds it on merge
 
-    assert run(repo).errors == ["INDEX.md is out of date: run `python template_ci.py index`"]
+    assert run(repo).errors == []
 
 
 @pytest.mark.parametrize("kind", ["existing", "outside"])
@@ -162,7 +160,6 @@ def test_files_loose_in_templates_fail(repo):
 
 def test_deleting_a_template_passes(repo):
     shutil.rmtree(repo / "templates" / UUID)
-    reindex(repo)
 
     assert run(repo).errors == []
 
@@ -254,3 +251,10 @@ def test_hash_prints_the_script_hash(repo, capsys):
     ci.main(["hash", str(repo / "templates" / UUID / "script.ini")])
 
     assert capsys.readouterr().out == ci.script_hash(SCRIPT) + "\n"
+
+
+def test_template_pull_request_reports_nothing_about_other_templates(repo):
+    write_template(repo, OTHER, template=meta(OTHER, status="published"))  # broken, and not this pull request's
+
+    assert run(repo).errors == []
+    assert any(OTHER in e for e in run(repo, changed=[ci.SNAPSHOT]).errors)  # a snapshot update checks them all
