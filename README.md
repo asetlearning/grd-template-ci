@@ -70,7 +70,7 @@ A copied script needs `approved_by`: the GitHub login of the author who approved
 
 ## Shared definitions
 
-The math-api plugin computes these with Python's standard library, so authors install nothing. CI recomputes them, so a mismatch fails the next pull request:
+The grd-math-api plugin computes these with Python's standard library, so authors install nothing. CI recomputes them, so a mismatch fails the next pull request:
 - `script_hash(script)`: sha256 of the raw bytes of `script.ini`, as the Math API computes it
 - `snapshot_hash(objectives)`: sha256 of the list as compact JSON, each entry reduced to `id`, `label` and `parent_id`, sorted by `id`, with sorted keys
 
