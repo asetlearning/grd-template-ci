@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/checkout@v4
         with:
-          repository: asetlearning/grd-template-ci
+          repository: grd-templates/grd-template-ci
           ref: ${{ inputs.ci-ref }}
           path: .template-ci
       - uses: actions/setup-python@v5

@@ -18,7 +18,7 @@ name: Template checks
 on: pull_request
 jobs:
   check:
-    uses: asetlearning/grd-template-ci/.github/workflows/check.yml@v1
+    uses: grd-templates/grd-template-ci/.github/workflows/check.yml@v1
     permissions:
       contents: read
       pull-requests: write
@@ -34,7 +34,7 @@ on:
     branches: [main]
 jobs:
   index:
-    uses: asetlearning/grd-template-ci/.github/workflows/index.yml@v1
+    uses: grd-templates/grd-template-ci/.github/workflows/index.yml@v1
     permissions:
       contents: write
 ```
